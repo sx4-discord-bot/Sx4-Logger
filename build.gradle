@@ -1,0 +1,16 @@
+apply plugin: 'java'
+
+dependencies {
+	compile('net.dv8tion:JDA:3+') {
+		exclude module: 'opus-java'
+	}
+	
+	compile group: 'com.rethinkdb', name: 'rethinkdb-driver', version: '2.3.3'
+	
+	/* TODO: Set up proper logging */
+	compile group: 'org.slf4j', name: 'slf4j-nop', version: '1.7.26'
+}
+
+repositories {
+	jcenter()
+}
