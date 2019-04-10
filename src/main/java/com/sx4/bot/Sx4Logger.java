@@ -2,6 +2,7 @@ package com.sx4.bot;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 
 import javax.security.auth.login.LoginException;
@@ -22,6 +23,12 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 public class Sx4Logger {
+	
+	private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
+	
+	public static DateTimeFormatter getTimeFormatter() {
+		return TIME_FORMATTER;
+	}
 	
 	private static OkHttpClient client = new OkHttpClient();
 	

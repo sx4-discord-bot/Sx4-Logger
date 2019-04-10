@@ -4,6 +4,7 @@ import static com.rethinkdb.RethinkDB.r;
 
 import java.awt.Color;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 
 import com.rethinkdb.net.Connection;
 import com.sx4.bot.Statistics;
+import com.sx4.bot.Sx4Logger;
 import com.sx4.bot.util.Utils;
 
 import net.dv8tion.jda.core.EmbedBuilder;
@@ -185,7 +187,7 @@ public class EventHandler extends ListenerAdapter {
 				}
 			}
 			
-			System.err.println("[_send]");
+			System.err.println("[" + LocalDateTime.now().format(Sx4Logger.getTimeFormatter()) + "] [_send]");
 			e.printStackTrace();
 		}
 	}
@@ -215,7 +217,7 @@ public class EventHandler extends ListenerAdapter {
 		Member member = event.getMember();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -235,7 +237,7 @@ public class EventHandler extends ListenerAdapter {
 		Member member = event.getMember();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -276,7 +278,7 @@ public class EventHandler extends ListenerAdapter {
 		User user = event.getUser();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -316,7 +318,7 @@ public class EventHandler extends ListenerAdapter {
 		User user = event.getUser();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -357,7 +359,7 @@ public class EventHandler extends ListenerAdapter {
 		Message message = event.getMessage(), previousMessage = GuildMessageCache.INSTANCE.getMessageById(message.getIdLong());
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -394,7 +396,7 @@ public class EventHandler extends ListenerAdapter {
 		TextChannel channel = event.getChannel();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -436,7 +438,7 @@ public class EventHandler extends ListenerAdapter {
 		Guild guild = channel.getGuild();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -492,7 +494,7 @@ public class EventHandler extends ListenerAdapter {
 		Guild guild = channel.getGuild();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -548,7 +550,7 @@ public class EventHandler extends ListenerAdapter {
 		Guild guild = channel.getGuild();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -609,7 +611,7 @@ public class EventHandler extends ListenerAdapter {
 		Role role = event.getRole();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -649,7 +651,7 @@ public class EventHandler extends ListenerAdapter {
 		Role role = event.getRole();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -689,7 +691,7 @@ public class EventHandler extends ListenerAdapter {
 		Role role = event.getRole();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -756,7 +758,7 @@ public class EventHandler extends ListenerAdapter {
 		Role role = event.getRole();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -804,7 +806,7 @@ public class EventHandler extends ListenerAdapter {
 		Role firstRole = roles.get(0);
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -887,7 +889,7 @@ public class EventHandler extends ListenerAdapter {
 		Role firstRole = roles.get(0);
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -977,7 +979,7 @@ public class EventHandler extends ListenerAdapter {
 		Member member = event.getMember();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -1020,7 +1022,7 @@ public class EventHandler extends ListenerAdapter {
 		Member member = event.getMember();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -1067,7 +1069,7 @@ public class EventHandler extends ListenerAdapter {
 		Member member = event.getMember();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -1115,7 +1117,7 @@ public class EventHandler extends ListenerAdapter {
 		VoiceChannel channel = event.getChannelJoined();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -1134,7 +1136,7 @@ public class EventHandler extends ListenerAdapter {
 		VoiceChannel channel = event.getChannelLeft();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
@@ -1154,7 +1156,7 @@ public class EventHandler extends ListenerAdapter {
 		VoiceChannel left = event.getChannelLeft(), joined = event.getChannelJoined();
 		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
-		if(data == null || !((Boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
+		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
