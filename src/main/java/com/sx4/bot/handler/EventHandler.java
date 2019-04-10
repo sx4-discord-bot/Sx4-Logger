@@ -48,6 +48,7 @@ import net.dv8tion.jda.core.events.channel.voice.VoiceChannelCreateEvent;
 import net.dv8tion.jda.core.events.channel.voice.VoiceChannelDeleteEvent;
 import net.dv8tion.jda.core.events.channel.voice.update.VoiceChannelUpdateNameEvent;
 import net.dv8tion.jda.core.events.guild.GuildBanEvent;
+import net.dv8tion.jda.core.events.guild.GuildLeaveEvent;
 import net.dv8tion.jda.core.events.guild.GuildUnbanEvent;
 import net.dv8tion.jda.core.events.guild.member.GuildMemberJoinEvent;
 import net.dv8tion.jda.core.events.guild.member.GuildMemberLeaveEvent;
@@ -197,6 +198,16 @@ public class EventHandler extends ListenerAdapter {
 	
 	public void send(JDA bot, Guild guild, Map<String, Object> data, MessageEmbed... embeds) {
 		this.send(bot, guild, data, List.of(embeds));
+	}
+	
+	public void onGuildLeave(GuildLeaveEvent event) {
+		BlockingDeque<Request> queue = this.queue.get(event.getGuild().getIdLong());
+		if(queue != null) {
+			queue.clear();
+			queue.offer(null);
+		}
+		
+		this.queue.remove(event.getGuild().getIdLong());
 	}
 	
 	public void onGuildMemberJoin(GuildMemberJoinEvent event) {
