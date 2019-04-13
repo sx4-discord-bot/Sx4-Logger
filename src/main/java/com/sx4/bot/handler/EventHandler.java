@@ -85,6 +85,9 @@ public class EventHandler extends ListenerAdapter {
 	private static final Color COLOR_ORANGE = new Color(15107115);
 	private static final Color COLOR_RED = new Color(16272208);
 	
+	private static final int MAX_ATTEMPTS = 3;
+	private static final int ATTEMPTS_BEFORE_REFETCH = 2;
+	
 	public EventHandler(Connection connection) {
 		this.connection = connection;
 	}
@@ -117,7 +120,7 @@ public class EventHandler extends ListenerAdapter {
 				try {
 					Request request;
 					while((request = blockingDeque.take()) != null) {
-						this._send(request.bot, request.guild, request.data, request.embeds);
+						this._send(request.bot, request.guild, request.data, request.embeds, 0);
 					}
 				}catch(InterruptedException e) {}
 			});
@@ -126,7 +129,15 @@ public class EventHandler extends ListenerAdapter {
 		this.queue.get(guild.getIdLong()).offer(new Request(bot, guild, data, embeds));
 	}
 	
-	private void _send(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds) {
+	private void _send(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds, int attempts) {
+		if(attempts >= MAX_ATTEMPTS) {
+			return;
+		}
+		
+		if(attempts >= ATTEMPTS_BEFORE_REFETCH) {
+			data = r.table("logs").get(guild.getId()).run(this.connection);
+		}
+		
 		TextChannel channel = guild.getTextChannelById((String) data.get("channel"));
 		if(channel == null) {
 			return;
@@ -180,7 +191,7 @@ public class EventHandler extends ListenerAdapter {
 								.with("webhook_token", null))
 							.runNoReply(this.connection);
 						
-						this._send(bot, guild, data, embeds);
+						this._send(bot, guild, data, embeds, attempts + 1);
 						
 						return;
 					}
