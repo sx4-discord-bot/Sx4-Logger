@@ -769,7 +769,7 @@ public class EventHandler extends ListenerAdapter {
 		Role role = event.getRole();
 		
 		/* Apparently they can be the same? */
-		if(event.getOldPermissionsRaw() != event.getNewPermissionsRaw()) {
+		if(event.getOldPermissionsRaw() == event.getNewPermissionsRaw()) {
 			return;
 		}
 		
