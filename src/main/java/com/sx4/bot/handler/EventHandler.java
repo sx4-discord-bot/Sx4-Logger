@@ -768,6 +768,11 @@ public class EventHandler extends ListenerAdapter {
 		Guild guild = event.getGuild();
 		Role role = event.getRole();
 		
+		/* Apparently they can be the same? */
+		if(event.getOldPermissionsRaw() != event.getNewPermissionsRaw()) {
+			return;
+		}
+		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
 		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
