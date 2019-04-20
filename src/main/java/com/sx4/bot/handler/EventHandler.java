@@ -749,17 +749,19 @@ public class EventHandler extends ListenerAdapter {
 		List<Permission> permissionsAdded = Permission.getPermissions(permissionsAfter & permissions);
 		List<Permission> permissionsRemoved = Permission.getPermissions(permissionsBefore & permissions);
 		
-		builder.append("\n```diff");
-		
-		for(Permission permissionAdded : permissionsAdded) {
-			builder.append("\n+ " + permissionAdded.getName());
+		if(permissionsAdded.size() + permissionsRemoved.size() != 0) {
+			builder.append("\n```diff");
+			
+			for(Permission permissionAdded : permissionsAdded) {
+				builder.append("\n+ " + permissionAdded.getName());
+			}
+			
+			for(Permission permissionRemoved : permissionsRemoved) {
+				builder.append("\n- " + permissionRemoved.getName());
+			}
+			
+			builder.append("```");
 		}
-		
-		for(Permission permissionRemoved : permissionsRemoved) {
-			builder.append("\n- " + permissionRemoved.getName());
-		}
-		
-		builder.append("```");
 		
 		return builder.toString();
 	}
@@ -768,49 +770,47 @@ public class EventHandler extends ListenerAdapter {
 		Guild guild = event.getGuild();
 		Role role = event.getRole();
 		
-		/* Apparently they can be the same? */
-		if(event.getOldPermissionsRaw() == event.getNewPermissionsRaw()) {
-			return;
-		}
-		
 		Map<String, Object> data = r.table("logs").get(guild.getId()).run(this.connection);
 		if(data == null || !((boolean) data.getOrDefault("toggle", false)) || data.get("channel") == null) {
 			return;
 		}
 		
-		EmbedBuilder embed = new EmbedBuilder();
-		embed.setDescription(String.format("The role %s has had permission changes made", role.getAsMention()));
-		embed.setColor(COLOR_ORANGE);
-		embed.setTimestamp(ZonedDateTime.now());
-		embed.setAuthor(guild.getName(), null, guild.getIconUrl());
-		embed.setFooter(String.format("Role ID: %s", role.getId()), null);
-		
-		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.ROLE_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
-				AuditLogEntry entry = logs.stream()
-					.filter(e -> e.getTargetIdLong() == event.getRole().getIdLong())
-					.filter(e -> e.getChangeByKey(AuditLogKey.ROLE_PERMISSIONS) != null)
-					.findFirst()
-					.orElse(null);
-				
-				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+		String message = this.getPermissionDifference(event.getOldPermissionsRaw(), event.getNewPermissionsRaw());
+		if(message.length() > 0) {
+			EmbedBuilder embed = new EmbedBuilder();
+			embed.setDescription(String.format("The role %s has had permission changes made", role.getAsMention()));
+			embed.setColor(COLOR_ORANGE);
+			embed.setTimestamp(ZonedDateTime.now());
+			embed.setAuthor(guild.getName(), null, guild.getIconUrl());
+			embed.setFooter(String.format("Role ID: %s", role.getId()), null);
+			
+			if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
+				guild.getAuditLogs().type(ActionType.ROLE_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+					AuditLogEntry entry = logs.stream()
+						.filter(e -> e.getTargetIdLong() == event.getRole().getIdLong())
+						.filter(e -> e.getChangeByKey(AuditLogKey.ROLE_PERMISSIONS) != null)
+						.findFirst()
+						.orElse(null);
 					
-					embed.setDescription(String.format("The role %s has had permission changes made by **%s**", role.getAsMention(), entry.getUser().getAsTag()));
-				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					if(entry != null) {
+						Statistics.successfulAuditLogs.incrementAndGet();
+						
+						embed.setDescription(String.format("The role %s has had permission changes made by **%s**", role.getAsMention(), entry.getUser().getAsTag()));
+					}else{
+						Statistics.failedAuditLogs.incrementAndGet();
+						
+						System.err.println(String.format("[onRoleUpdatePermissions] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), role.getName(), role.getId()));
+					}
 					
-					System.err.println(String.format("[onRoleUpdatePermissions] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), role.getName(), role.getId()));
-				}
-				
-				embed.appendDescription(this.getPermissionDifference(event.getOldPermissionsRaw(), event.getNewPermissionsRaw()));
+					embed.appendDescription(message);
+					
+					this.send(event.getJDA(), guild, data, embed.build());
+				});
+			}else{
+				embed.appendDescription(message);
 				
 				this.send(event.getJDA(), guild, data, embed.build());
-			});
-		}else{
-			embed.appendDescription(this.getPermissionDifference(event.getOldPermissionsRaw(), event.getNewPermissionsRaw()));
-			
-			this.send(event.getJDA(), guild, data, embed.build());
+			}
 		}
 	}
 	
