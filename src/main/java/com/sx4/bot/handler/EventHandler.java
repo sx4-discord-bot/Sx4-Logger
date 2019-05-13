@@ -236,7 +236,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setDescription(String.format("`%s` just joined the server", member.getEffectiveName()));
 		embed.setColor(COLOR_GREEN);
 		embed.setTimestamp(ZonedDateTime.now());
-		embed.setAuthor(member.getUser().getAsTag(), null, member.getUser().getAvatarUrl());
+		embed.setAuthor(member.getUser().getAsTag(), null, member.getUser().getEffectiveAvatarUrl());
 		
 		embed.setFooter(String.format("User ID: %s", member.getUser().getId()), null);
 		
