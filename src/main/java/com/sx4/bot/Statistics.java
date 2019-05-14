@@ -6,11 +6,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Statistics {
 	
 	private static final String AUDIT_MESSAGE = "Successful audit logs %s/%s (Unsuccessful: %s, %.2f%%)";
-	private static final String WEBHOOK_MESSAGE = "Total webhooks registered %s";
 	private static final String LOGS_MESSAGE = "Successful logs %s/%s (Skipped: %s, %.2f%%) (Unsuccessful: %s)";
+	
+	private static final String WEBHOOK_MESSAGE = "Total webhooks registered %s";
 	private static final String QUEUED_LOGS_MESSAGE = "Total queued logs %s";
 	
-	private static final String MESSAGE_SEPERATOR = "------------------------------";
+	private static final String MESSAGE_SEPARATOR = "------------------------------";
 	
 	private static final AtomicInteger failedAuditLogs = new AtomicInteger();
 	private static final AtomicInteger successfulAuditLogs = new AtomicInteger();
@@ -41,7 +42,7 @@ public class Statistics {
 	
 	public static void printStatistics() {
 		StringBuilder message = new StringBuilder();
-		message.append(MESSAGE_SEPERATOR);
+		message.append(MESSAGE_SEPARATOR);
 		
 		{
 			int successful = Statistics.successfulAuditLogs.get();
@@ -65,7 +66,7 @@ public class Statistics {
 		message.append('\n').append(String.format(WEBHOOK_MESSAGE, Sx4Logger.getEventHandler().getRegisteredWebhooks().size()));
 		message.append('\n').append(String.format(QUEUED_LOGS_MESSAGE, Sx4Logger.getEventHandler().getTotalRequestsQueued()));
 		
-		message.append('\n').append(MESSAGE_SEPERATOR);
+		message.append('\n').append(MESSAGE_SEPARATOR);
 		System.out.println(message);
 	}
 	
