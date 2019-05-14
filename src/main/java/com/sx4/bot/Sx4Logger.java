@@ -32,6 +32,12 @@ public class Sx4Logger {
 	
 	private static OkHttpClient client = new OkHttpClient();
 	
+	private static EventHandler eventHandler;
+	
+	public static EventHandler getEventHandler() {
+		return Sx4Logger.eventHandler;
+	}
+	
 	public static void main(String[] args) throws Exception {
 		String token;
 		try(FileInputStream stream = new FileInputStream(new File("./config/sx4.token"))) {
@@ -49,10 +55,12 @@ public class Sx4Logger {
 			exception.getStackTrace();
 		});
 		
+		Sx4Logger.eventHandler = new EventHandler(connection);
+		
 		JDABuilder builder = new JDABuilder(AccountType.BOT)
 			.setToken(token)
 			.addEventListener(new ExceptionHandler())
-			.addEventListener(new EventHandler(connection))
+			.addEventListener(Sx4Logger.eventHandler)
 			.addEventListener(GuildMessageCache.INSTANCE)
 			.setDisabledCacheFlags(EnumSet.of(CacheFlag.EMOTE, CacheFlag.GAME));
 		

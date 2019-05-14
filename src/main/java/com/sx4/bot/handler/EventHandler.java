@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -73,13 +75,11 @@ import net.dv8tion.jda.core.hooks.ListenerAdapter;
 import net.dv8tion.jda.core.requests.restaction.AuditableRestAction.EmptyRestAction;
 import net.dv8tion.jda.webhook.WebhookClient;
 import net.dv8tion.jda.webhook.WebhookClientBuilder;
-import net.dv8tion.jda.webhook.WebhookMessageBuilder;;
+import net.dv8tion.jda.webhook.WebhookMessage;
+import net.dv8tion.jda.webhook.WebhookMessageBuilder;
+import okhttp3.OkHttpClient;;
 
 public class EventHandler extends ListenerAdapter {
-	
-	private Connection connection;
-	
-	private Map<String, WebhookClient> webhooks = new HashMap<>();
 	
 	private static final Color COLOR_GREEN = new Color(6284392);
 	private static final Color COLOR_ORANGE = new Color(15107115);
@@ -87,10 +87,6 @@ public class EventHandler extends ListenerAdapter {
 	
 	private static final int MAX_ATTEMPTS = 3;
 	private static final int ATTEMPTS_BEFORE_REFETCH = 2;
-	
-	public EventHandler(Connection connection) {
-		this.connection = connection;
-	}
 	
 	public static class Request {
 		
@@ -107,9 +103,30 @@ public class EventHandler extends ListenerAdapter {
 		}
 	}
 	
+	private Connection connection;
+	
+	private Map<String, WebhookClient> webhooks = new HashMap<>();
+	
 	private Map<Long, BlockingDeque<Request>> queue = new HashMap<>();
 	
 	private ExecutorService executor = Executors.newCachedThreadPool();
+	private ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+	
+	private OkHttpClient client = new OkHttpClient.Builder().build();
+	
+	public EventHandler(Connection connection) {
+		this.connection = connection;
+	}
+	
+	public Collection<WebhookClient> getRegisteredWebhooks() {
+		return this.webhooks.values();
+	}
+	
+	public int getTotalRequestsQueued() {
+		return this.queue.values().stream()
+			.mapToInt(queue -> queue.size())
+			.sum();
+	}
 	
 	private void handleRequest(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds) {
 		if(!this.queue.containsKey(guild.getIdLong())) {
@@ -131,6 +148,8 @@ public class EventHandler extends ListenerAdapter {
 	
 	private void _send(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds, int attempts) {
 		if(attempts >= MAX_ATTEMPTS) {
+			Statistics.increaseSkippedLogs();
+			
 			return;
 		}
 		
@@ -157,24 +176,36 @@ public class EventHandler extends ListenerAdapter {
 					.with("webhook_token", webhook.getToken()))
 				.runNoReply(this.connection);
 			
-			client = webhook.newClient().build();
+			client = webhook.newClient()
+				.setExecutorService(this.scheduledExecutorService)
+				.setHttpClient(this.client)
+				.build();
 			
 			this.webhooks.put(client.getId(), client);
 		}else{
 			String webhookId = (String) data.get("webhook_id");
 			String webhookToken = (String) data.get("webhook_token");
 			
-			client = this.webhooks.computeIfAbsent(webhookId, ($) -> new WebhookClientBuilder(Long.valueOf(webhookId), webhookToken).build());
+			client = this.webhooks.computeIfAbsent(webhookId, ($) -> 
+				new WebhookClientBuilder(Long.valueOf(webhookId), webhookToken)
+					.setExecutorService(this.scheduledExecutorService)
+					.setHttpClient(this.client)
+					.build());
 		}
 		
 		try {
-			client.send(new WebhookMessageBuilder()
+			WebhookMessage message = new WebhookMessageBuilder()
 				.setAvatarUrl(bot.getSelfUser().getEffectiveAvatarUrl())
 				.setUsername("Sx4 - Logs")
 				.addEmbeds(embeds)
-				.build()
-			).get();
+				.build();
+			
+			client.send(message).get();
+			
+			Statistics.increaseSuccessfulLogs();
 		}catch(InterruptedException | ExecutionException e) {
+			Statistics.increaseFailedLogs();
+			
 			if(e instanceof ExecutionException) {
 				if(e.getCause() instanceof HttpException) {
 					/* Ugly catch, blame JDA */
@@ -308,11 +339,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("`%s` has been banned by **%s**", user.getName(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onGuildBan] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), user.getAsTag(), user.getId()));
 				}
@@ -348,11 +379,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("`%s` has been unbanned by **%s**", user.getName(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onGuildUnban] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), user.getAsTag(), user.getId()));
 				}
@@ -473,11 +504,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("The %s `%s` has just been deleted by **%s**", type, channel.getName(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onChannelDelete] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), channel.getName(), channel.getId()));
 				}
@@ -529,11 +560,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("The %s %s has just been created by **%s**", type, channel.getType().equals(ChannelType.TEXT) ? ((TextChannel) channel).getAsMention() : "`" + channel.getName() + "`", entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onChannelCreate] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), channel.getName(), channel.getId()));
 				}
@@ -589,11 +620,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("The %s **%s** has been renamed by **%s**", type, channel.getType().equals(ChannelType.TEXT) ? ((TextChannel) channel).getAsMention() : "`" + channel.getName() + "`", entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onChannelUpdateName] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), channel.getName(), channel.getId()));
 				}
@@ -641,11 +672,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("The role %s has been created by **%s**", role.getAsMention(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onRoleCreate] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), role.getName(), role.getId()));
 				}
@@ -681,11 +712,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("The role `%s` has been deleted by **%s**", role.getName(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onRoleCreate] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), role.getName(), role.getId()));
 				}
@@ -725,11 +756,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("The role %s has been renamed by **%s**", role.getAsMention(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onRoleUpdateName] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), role.getName(), role.getId()));
 				}
@@ -793,11 +824,11 @@ public class EventHandler extends ListenerAdapter {
 						.orElse(null);
 					
 					if(entry != null) {
-						Statistics.successfulAuditLogs.incrementAndGet();
+						Statistics.increaseSuccessfulAuditLogs();
 						
 						embed.setDescription(String.format("The role %s has had permission changes made by **%s**", role.getAsMention(), entry.getUser().getAsTag()));
 					}else{
-						Statistics.failedAuditLogs.incrementAndGet();
+						Statistics.increaseFailedAuditLogs();
 						
 						System.err.println(String.format("[onRoleUpdatePermissions] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), role.getName(), role.getId()));
 					}
@@ -881,11 +912,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.appendDescription(String.format(" by **%s**", entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onGuildMemberRoleAdd] Could not find audit log for %s (%s) (%s) (%s)", guild.getName(), guild.getId(), member, roles));
 				}
@@ -972,11 +1003,11 @@ public class EventHandler extends ListenerAdapter {
 							.orElse(null);
 						
 						if(entry != null) {
-							Statistics.successfulAuditLogs.incrementAndGet();
+							Statistics.increaseSuccessfulAuditLogs();
 							
 							embed.appendDescription(String.format(" by **%s**", entry.getUser().getAsTag()));
 						}else{
-							Statistics.failedAuditLogs.incrementAndGet();
+							Statistics.increaseFailedAuditLogs();
 							
 							System.err.println(String.format("[onGuildMemberRoleRemove] Could not find audit log for %s (%s) (%s) (%s)", guild.getName(), guild.getId(), member, roles));
 						}
@@ -1017,11 +1048,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("`%s` has had their nickname changed by **%s**", member.getEffectiveName(), entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onGuildMemberNickChange] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), member.getUser().getName(), member.getUser().getId()));
 				}
@@ -1064,11 +1095,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("`%s` has been %s by **%s**", member.getEffectiveName(), muted ? "muted" : "unmuted", entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onGuildVoiceGuildMute] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), member.getUser().getAsTag(), member.getUser().getId()));
 				}
@@ -1111,11 +1142,11 @@ public class EventHandler extends ListenerAdapter {
 					.orElse(null);
 				
 				if(entry != null) {
-					Statistics.successfulAuditLogs.incrementAndGet();
+					Statistics.increaseSuccessfulAuditLogs();
 					
 					embed.setDescription(String.format("`%s` has been %s by **%s**", member.getEffectiveName(), deafened ? "deafened" : "undefeaned", entry.getUser().getAsTag()));
 				}else{
-					Statistics.failedAuditLogs.incrementAndGet();
+					Statistics.increaseFailedAuditLogs();
 					
 					System.err.println(String.format("[onGuildVoiceGuildDeafen] Could not find audit log for %s (%s) %s (%s)", guild.getName(), guild.getId(), member.getUser().getAsTag(), member.getUser().getId()));
 				}
