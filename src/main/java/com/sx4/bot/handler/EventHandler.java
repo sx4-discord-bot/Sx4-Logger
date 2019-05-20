@@ -85,8 +85,12 @@ public class EventHandler extends ListenerAdapter {
 	private static final Color COLOR_ORANGE = new Color(15107115);
 	private static final Color COLOR_RED = new Color(16272208);
 	
+	/* It can some times get stuck in an infinite loop and these are used to prevent it */
 	private static final int MAX_ATTEMPTS = 3;
 	private static final int ATTEMPTS_BEFORE_REFETCH = 2;
+	
+	/* Used to ensure that the audit-log has come through */
+	private static final int AUDIT_LOG_DELAY = 500;
 	
 	public static class Request {
 		
@@ -122,31 +126,59 @@ public class EventHandler extends ListenerAdapter {
 		return this.webhooks.values();
 	}
 	
+	public Map<Long, BlockingDeque<Request>> getQueue() {
+		return this.queue;
+	}
+	
 	public int getTotalRequestsQueued() {
 		return this.queue.values().stream()
 			.mapToInt(queue -> queue.size())
 			.sum();
 	}
 	
-	private void handleRequest(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds) {
+	private void handleRequest(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> requestEmbeds) {
 		if(!this.queue.containsKey(guild.getIdLong())) {
 			BlockingDeque<Request> blockingDeque = new LinkedBlockingDeque<>();
 			this.queue.put(guild.getIdLong(), blockingDeque);
 			
 			this.executor.submit(() -> {
 				try {
+					List<MessageEmbed> embeds = new ArrayList<>();
+					int length = 0, requests = 0;
+					
 					Request request;
 					while((request = blockingDeque.take()) != null) {
-						this._send(request.bot, request.guild, request.data, request.embeds, 0);
+						int lengthToSend = request.embeds.stream()
+							.mapToInt(MessageEmbed::getLength)
+							.sum();
+						
+						/* Bulk the requests if there is more than one queued up */
+						boolean hasSpace = embeds.size() + request.embeds.size() <= 10 && length + lengthToSend <= MessageEmbed.EMBED_MAX_LENGTH_BOT;
+						if(hasSpace) {
+							embeds.addAll(request.embeds);
+							
+							length += lengthToSend;
+							requests++;
+						}else{
+							blockingDeque.addFirst(request);
+						}
+						
+						if(!hasSpace || embeds.size() == 10 || blockingDeque.isEmpty()) {
+							this._send(request.bot, request.guild, request.data, embeds, requests, 0);
+							
+							embeds.clear();
+							requests = 0;
+							length = 0;
+						}
 					}
 				}catch(InterruptedException e) {}
 			});
 		}
 		
-		this.queue.get(guild.getIdLong()).offer(new Request(bot, guild, data, embeds));
+		this.queue.get(guild.getIdLong()).offer(new Request(bot, guild, data, requestEmbeds));
 	}
 	
-	private void _send(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds, int attempts) {
+	private void _send(JDA bot, Guild guild, Map<String, Object> data, List<MessageEmbed> embeds, int requestAmount, int attempts) {
 		if(attempts >= MAX_ATTEMPTS) {
 			Statistics.increaseSkippedLogs();
 			
@@ -202,7 +234,7 @@ public class EventHandler extends ListenerAdapter {
 			
 			client.send(message).get();
 			
-			Statistics.increaseSuccessfulLogs();
+			Statistics.increaseSuccessfulLogs(requestAmount);
 		}catch(InterruptedException | ExecutionException e) {
 			Statistics.increaseFailedLogs();
 			
@@ -213,7 +245,14 @@ public class EventHandler extends ListenerAdapter {
 						data.put("webhook_id", null);
 						data.put("wehook_token", null);
 						
-						this.webhooks.remove(client.getId()).close();
+						/* 
+						 * Calling close would close the scheduled executor service we are using,
+						 * causing all logs to stop.
+						 * 
+						 * this.webhooks.remove(client.getId()).close(); 
+						 */
+						
+						this.webhooks.remove(client.getId());
 						
 						r.table("logs")
 							.get(guild.getId())
@@ -222,7 +261,7 @@ public class EventHandler extends ListenerAdapter {
 								.with("webhook_token", null))
 							.runNoReply(this.connection);
 						
-						this._send(bot, guild, data, embeds, attempts + 1);
+						this._send(bot, guild, data, embeds, requestAmount, attempts + 1);
 						
 						return;
 					}
@@ -295,7 +334,7 @@ public class EventHandler extends ListenerAdapter {
 		embeds.add(embed.build());
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.KICK).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.KICK).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == member.getUser().getIdLong())
 					.filter(e -> Duration.between(e.getCreationTime(), ZonedDateTime.now()).toSeconds() < 10)
@@ -332,7 +371,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setFooter(String.format("User ID: %s", user.getId()), null);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.BAN).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.BAN).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == user.getIdLong())
 					.findFirst()
@@ -372,7 +411,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setFooter(String.format("User ID: %s", user.getId()), null);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.UNBAN).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.UNBAN).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == user.getIdLong())
 					.findFirst()
@@ -497,7 +536,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setFooter(String.format("%s ID: %s", channel.getType().equals(ChannelType.CATEGORY) ? "Category" : "Channel", channel.getId()), null);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.CHANNEL_DELETE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.CHANNEL_DELETE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == channel.getIdLong())
 					.findFirst()
@@ -553,7 +592,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setFooter(String.format("%s ID: %s", channel.getType().equals(ChannelType.CATEGORY) ? "Category" : "Channel", channel.getId()), null);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.CHANNEL_CREATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.CHANNEL_CREATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == channel.getIdLong())
 					.findFirst()
@@ -612,7 +651,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.addField("After", String.format("`%s`", current), false);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.CHANNEL_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.CHANNEL_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == channel.getIdLong())
 					.filter(e -> e.getChangeByKey(AuditLogKey.CHANNEL_NAME) != null)
@@ -665,7 +704,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setFooter(String.format("Role ID: %s", role.getId()), null);
 		
 		if(!role.isManaged() && guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.ROLE_CREATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.ROLE_CREATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == event.getRole().getIdLong())
 					.findFirst()
@@ -705,7 +744,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.setFooter(String.format("Role ID: %s", role.getId()), null);
 		
 		if(!role.isManaged() && guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.ROLE_DELETE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.ROLE_DELETE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == event.getRole().getIdLong())
 					.findFirst()
@@ -748,7 +787,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.addField("After", String.format("`%s`", event.getNewName()), false);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.ROLE_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.ROLE_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == event.getRole().getIdLong())
 					.filter(e -> e.getChangeByKey(AuditLogKey.ROLE_NAME) != null)
@@ -816,7 +855,7 @@ public class EventHandler extends ListenerAdapter {
 			embed.setFooter(String.format("Role ID: %s", role.getId()), null);
 			
 			if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-				guild.getAuditLogs().type(ActionType.ROLE_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+				guild.getAuditLogs().type(ActionType.ROLE_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 					AuditLogEntry entry = logs.stream()
 						.filter(e -> e.getTargetIdLong() == event.getRole().getIdLong())
 						.filter(e -> e.getChangeByKey(AuditLogKey.ROLE_PERMISSIONS) != null)
@@ -892,7 +931,7 @@ public class EventHandler extends ListenerAdapter {
 		}
 		
 		if(!firstRole.isManaged() && guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.MEMBER_ROLE_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.MEMBER_ROLE_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == member.getUser().getIdLong())
 					.filter(e -> e.getChangeByKey(AuditLogKey.MEMBER_ROLES_ADD) != null)
@@ -940,8 +979,8 @@ public class EventHandler extends ListenerAdapter {
 			return;
 		}
 		
-		/* Wait 500 milliseconds to ensure that the role-deletion event has come through */
-		new EmptyRestAction<Void>(event.getJDA()).queueAfter(500, TimeUnit.MILLISECONDS, ($) -> {
+		/* Wait AUDIT_LOG_DELAY milliseconds to ensure that the role-deletion event has come through */
+		new EmptyRestAction<Void>(event.getJDA()).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, ($) -> {
 			EmbedBuilder embed = new EmbedBuilder();
 			embed.setColor(COLOR_RED);
 			embed.setTimestamp(ZonedDateTime.now());
@@ -1040,7 +1079,7 @@ public class EventHandler extends ListenerAdapter {
 		embed.addField("After", String.format("`%s`", event.getNewNick() != null ? event.getNewNick() : member.getUser().getName()), false);
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.MEMBER_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.MEMBER_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == member.getUser().getIdLong())
 					.filter(e -> e.getChangeByKey(AuditLogKey.MEMBER_NICK) != null)
@@ -1087,7 +1126,7 @@ public class EventHandler extends ListenerAdapter {
 		}
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.MEMBER_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.MEMBER_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == member.getUser().getIdLong())
 					.filter(e -> e.getChangeByKey(AuditLogKey.MEMBER_MUTE) != null)
@@ -1134,7 +1173,7 @@ public class EventHandler extends ListenerAdapter {
 		}
 		
 		if(guild.getSelfMember().hasPermission(Permission.VIEW_AUDIT_LOGS)) {
-			guild.getAuditLogs().type(ActionType.MEMBER_UPDATE).limit(100).queueAfter(500, TimeUnit.MILLISECONDS, logs -> {
+			guild.getAuditLogs().type(ActionType.MEMBER_UPDATE).limit(100).queueAfter(AUDIT_LOG_DELAY, TimeUnit.MILLISECONDS, logs -> {
 				AuditLogEntry entry = logs.stream()
 					.filter(e -> e.getTargetIdLong() == member.getUser().getIdLong())
 					.filter(e -> e.getChangeByKey(AuditLogKey.MEMBER_DEAF) != null)

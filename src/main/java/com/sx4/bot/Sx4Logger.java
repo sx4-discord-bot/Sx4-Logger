@@ -4,8 +4,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
-
-import javax.security.auth.login.LoginException;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.concurrent.BlockingDeque;
+import java.util.stream.Collectors;
 
 import org.json.JSONObject;
 
@@ -15,8 +18,13 @@ import com.sx4.bot.handler.EventHandler;
 import com.sx4.bot.handler.ExceptionHandler;
 import com.sx4.bot.handler.GuildMessageCache;
 
-import net.dv8tion.jda.core.AccountType;
-import net.dv8tion.jda.core.JDABuilder;
+import net.dv8tion.jda.bot.sharding.DefaultShardManagerBuilder;
+import net.dv8tion.jda.bot.sharding.ShardManager;
+import net.dv8tion.jda.core.JDA.ShardInfo;
+import net.dv8tion.jda.core.JDA.Status;
+import net.dv8tion.jda.core.entities.Guild;
+import net.dv8tion.jda.core.events.ReadyEvent;
+import net.dv8tion.jda.core.hooks.ListenerAdapter;
 import net.dv8tion.jda.core.utils.cache.CacheFlag;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -34,9 +42,17 @@ public class Sx4Logger {
 	
 	private static EventHandler eventHandler;
 	
+	private static ShardManager shardManager;
+	
 	public static EventHandler getEventHandler() {
 		return Sx4Logger.eventHandler;
 	}
+	
+	public static ShardManager getShardManager() {
+		return Sx4Logger.shardManager;
+	}
+	
+	public static final String MESSAGE_SEPARATOR = "------------------------------";
 	
 	public static void main(String[] args) throws Exception {
 		String token;
@@ -57,25 +73,106 @@ public class Sx4Logger {
 		
 		Sx4Logger.eventHandler = new EventHandler(connection);
 		
-		JDABuilder builder = new JDABuilder(AccountType.BOT)
-			.setToken(token)
-			.addEventListener(new ExceptionHandler())
-			.addEventListener(Sx4Logger.eventHandler)
-			.addEventListener(GuildMessageCache.INSTANCE)
-			.setDisabledCacheFlags(EnumSet.of(CacheFlag.EMOTE, CacheFlag.GAME));
-		
 		int shardCount = Sx4Logger.getRecommendedShards(token);
-		for(int i = 0; i < shardCount; i++) {
-			try {
-				builder.useSharding(i, shardCount).build().awaitReady();
-				
-				System.out.println("Started shard " + (i + 1) + "/" + shardCount + "!");
-			}catch(LoginException | InterruptedException e) {
-				e.printStackTrace();
-			}
+		
+		Sx4Logger.shardManager = new DefaultShardManagerBuilder()
+			.setToken(token)
+			.setShardsTotal(shardCount)
+			.setDisabledCacheFlags(EnumSet.of(CacheFlag.EMOTE, CacheFlag.GAME))
+			.addEventListeners(new ExceptionHandler())
+			.addEventListeners(Sx4Logger.eventHandler)
+			.addEventListeners(GuildMessageCache.INSTANCE)
+			.addEventListeners(new ListenerAdapter() {
+				public void onReady(ReadyEvent event) {
+					ShardInfo info = event.getJDA().getShardInfo();
+					
+					System.out.println("Started shard " + (info.getShardId() + 1) + "/" + info.getShardTotal());
+					
+					event.getJDA().removeEventListener(this);
+				}
+			})
+			.build();
+		
+
+		while(Sx4Logger.shardManager.getShardCache().stream()
+				.filter(jda -> jda != null)
+				.filter(jda -> jda.getStatus().equals(Status.CONNECTED))
+				.count() != shardCount) {
+			
+			Thread.sleep(100L);
 		}
 		
 		System.gc();
+		
+		System.out.println("Booted!");
+		
+		/* Used for debugging */
+		try(Scanner scanner = new Scanner(System.in)) {
+			String line;
+			while((line = scanner.nextLine()) != null) {
+				if(line.startsWith("help")) {
+					System.out.println(Sx4Logger.getMessageSeperated(new StringBuilder()
+						.append("\nqueued - sends information about the queued requests")
+						.append("\nstats - sends the statistics")
+						.append("\nclear - clears the console")));
+					
+					continue;
+				}
+				
+				if(line.equalsIgnoreCase("queued")) {
+					StringBuilder message = new StringBuilder();
+					
+					Map<Long, BlockingDeque<EventHandler.Request>> queue = Sx4Logger.getEventHandler().getQueue();
+					
+					List<Long> mostQueued = queue.keySet().stream()
+						.sorted((key, key2) -> -Integer.compare(queue.get(key).size(), queue.get(key2).size()))
+						.limit(10)
+						.collect(Collectors.toList());
+					
+					for(long guildId : mostQueued) {
+						int queued = queue.get(guildId).size();
+						if(queued > 0) {
+							Guild guild = Sx4Logger.getShardManager().getGuildById(guildId);
+							if(guild != null) {
+								message.append('\n').append(guild.getName() + " (" + guildId + ") - " + queued);
+							}else{
+								message.append('\n').append("Unknown guild (" + guildId + ") - " + queued);
+							}
+						}
+					}
+					
+					message.append('\n').append("Total queued requests: " + Sx4Logger.getEventHandler().getTotalRequestsQueued());
+
+					System.out.println(Sx4Logger.getMessageSeperated(message));
+					
+					continue;
+				}
+				
+				if(line.equalsIgnoreCase("stats")) {
+					Statistics.printStatistics();
+					
+					continue;
+				}
+				
+				if(line.equalsIgnoreCase("clear")) {
+				    System.out.print("\033[H\033[2J");
+				    System.out.flush();
+				    
+				    continue;
+				}
+				
+				System.out.println(Sx4Logger.getMessageSeperated("\nUnknown command"));
+			}
+		}
+	}
+	
+	public static StringBuilder getMessageSeperated(CharSequence sequence) {
+		StringBuilder builder = new StringBuilder();
+		builder.append(MESSAGE_SEPARATOR);
+		builder.append(sequence);
+		builder.append('\n').append(MESSAGE_SEPARATOR);
+		
+		return builder;
 	}
 	
 	public static int getRecommendedShards(String token) {
