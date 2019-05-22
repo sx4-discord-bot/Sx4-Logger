@@ -68,7 +68,7 @@ public class Sx4Logger {
 		Thread.setDefaultUncaughtExceptionHandler((thread, exception) -> {
 			System.err.println("[Uncaught]");
 			
-			exception.getStackTrace();
+			exception.printStackTrace();
 		});
 		
 		Sx4Logger.eventHandler = new EventHandler(connection);
